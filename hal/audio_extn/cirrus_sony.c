@@ -464,14 +464,18 @@ static int cirrus_set_mixer_value_by_name_lr(char* ctl_base_name, int value) {
     int ret = 0;
 
     ret = cirrus_format_mixer_name(ctl_base_name, "L", ctl_name, sizeof(ctl_name));
-    ret += cirrus_set_mixer_value_by_name(ctl_name, value);
+    if (ret < 0)
+        return ret;
+    ret = cirrus_set_mixer_value_by_name(ctl_name, value);
     if (ret < 0) {
         ALOGE("%s: Cannot set mixer %s to %d", __func__, ctl_name, value);
         goto end;
     }
 
     ret = cirrus_format_mixer_name(ctl_base_name, "R", ctl_name, sizeof(ctl_name));
-    ret += cirrus_set_mixer_value_by_name(ctl_name, value);
+    if (ret < 0)
+        return ret;
+    ret = cirrus_set_mixer_value_by_name(ctl_name, value);
     if (ret < 0)
         ALOGE("%s: Cannot set mixer %s to %d", __func__, ctl_name, value);
 end:
@@ -723,7 +727,9 @@ static int cirrus_do_reset(const char *channel) {
     int ret = 0;
 
     ret = cirrus_format_mixer_name("CCM Reset", channel, ctl_name, sizeof(ctl_name));
-    ret += cirrus_get_mixer_value_by_name(ctl_name);
+    if (ret < 0)
+        return ret;
+    ret = cirrus_get_mixer_value_by_name(ctl_name);
     if (ret < 0) {
         ALOGE("%s: CCM Reset is missing!!!", __func__);
     } else {
@@ -748,7 +754,9 @@ static int cirrus_exec_fw_download(const char *fw_type, const char *channel,
 
     /* If this one is missing, we're not using our Cirrus codec... */
     ret = cirrus_format_mixer_name("DSP Booted", channel, ctl_name, sizeof(ctl_name));
-    ret += cirrus_get_mixer_value_by_name(ctl_name);
+    if (ret < 0)
+        return ret;
+    ret = cirrus_get_mixer_value_by_name(ctl_name);
     if (ret < 0) {
         ALOGE("%s: %s control is missing. Bailing out.", __func__, ctl_name);
         ret = -ENODEV;
@@ -766,7 +774,9 @@ static int cirrus_exec_fw_download(const char *fw_type, const char *channel,
 
     ret = cirrus_format_mixer_name("DSP1 Preload Switch",
                                    channel, ctl_name, sizeof(ctl_name));
-    ret += cirrus_set_mixer_value_by_name(ctl_name, 0);
+    if (ret < 0)
+        return ret;
+    ret = cirrus_set_mixer_value_by_name(ctl_name, 0);
     if (ret < 0) {
         ALOGE("%s: Cannot reset %s", __func__, ctl_name);
         goto exit;
@@ -775,14 +785,18 @@ static int cirrus_exec_fw_download(const char *fw_type, const char *channel,
 
     /* Determine what firmware to load and configure DSP */
     ret = cirrus_format_mixer_name("DSP1 Firmware", channel, ctl_name, sizeof(ctl_name));
-    ret += cirrus_set_mixer_enum_by_name(ctl_name, fw_type);
+    if (ret < 0)
+        return ret;
+    ret = cirrus_set_mixer_enum_by_name(ctl_name, fw_type);
     if (ret < 0) {
         ALOGE("%s: Cannot set %s to %s", __func__, ctl_name, fw_type);
         goto exit;
     }
 
     ret = cirrus_format_mixer_name("PCM Source", channel, ctl_name, sizeof(ctl_name));
-    ret += cirrus_set_mixer_enum_by_name(ctl_name, "DSP");
+    if (ret < 0)
+        return ret;
+    ret = cirrus_set_mixer_enum_by_name(ctl_name, "DSP");
     if (ret < 0) {
         ALOGE("%s: Cannot set %s to DSP", __func__, ctl_name);
         goto exit;
@@ -791,7 +805,9 @@ static int cirrus_exec_fw_download(const char *fw_type, const char *channel,
     /* Send the firmware! */
     ret = cirrus_format_mixer_name("DSP1 Preload Switch",
                                    channel, ctl_name, sizeof(ctl_name));
-    ret += cirrus_set_mixer_value_by_name(ctl_name, 1);
+    if (ret < 0)
+        return ret;
+    ret = cirrus_set_mixer_value_by_name(ctl_name, 1);
     if (ret < 0) {
         ALOGE("%s: Cannot set %s to %s", __func__, ctl_name, fw_type);
         goto exit;
@@ -999,7 +1015,9 @@ static int cirrus_stereo_calibration(void) {
 
     ret = cirrus_format_mixer_name(CIRRUS_CTL_CALI_CAL_STATUS, "L",
                                    ctl_name, sizeof(ctl_name));
-    ret += cirrus_get_mixer_array_by_name(ctl_name,
+    if (ret < 0)
+        return ret;
+    ret = cirrus_get_mixer_array_by_name(ctl_name,
                                           &handle.spkl.status, 4);
     if (ret < 0) {
         ALOGE("%s: Cannot get %s", __func__, ctl_name);
@@ -1008,7 +1026,9 @@ static int cirrus_stereo_calibration(void) {
 
     ret = cirrus_format_mixer_name(CIRRUS_CTL_CALI_CAL_STATUS, "R",
                                    ctl_name, sizeof(ctl_name));
-    ret += cirrus_get_mixer_array_by_name(ctl_name,
+    if (ret < 0)
+        return ret;
+    ret = cirrus_get_mixer_array_by_name(ctl_name,
                                           &handle.spkr.status, 4);
     if (ret < 0) {
         ALOGE("%s: Cannot get %s", __func__, ctl_name);
@@ -1041,7 +1061,9 @@ static int cirrus_stereo_calibration(void) {
 
     ret = cirrus_format_mixer_name(CIRRUS_CTL_CALI_CAL_CHECKSUM, "L",
                                    ctl_name, sizeof(ctl_name));
-    ret += cirrus_get_mixer_array_by_name(ctl_name,
+    if (ret < 0)
+        return ret;
+    ret = cirrus_get_mixer_array_by_name(ctl_name,
                                          &handle.spkl.checksum, 4);
     if (ret < 0) {
         ALOGE("%s: Cannot get %s", __func__, ctl_name);
@@ -1050,7 +1072,9 @@ static int cirrus_stereo_calibration(void) {
 
     ret = cirrus_format_mixer_name(CIRRUS_CTL_CALI_CAL_CHECKSUM, "R",
                                    ctl_name, sizeof(ctl_name));
-    ret += cirrus_get_mixer_array_by_name(ctl_name,
+    if (ret < 0)
+        return ret;
+    ret = cirrus_get_mixer_array_by_name(ctl_name,
                                          &handle.spkr.checksum, 4);
     if (ret < 0) {
         ALOGE("%s: Cannot get %s", __func__, ctl_name);
@@ -1059,7 +1083,9 @@ static int cirrus_stereo_calibration(void) {
 
     ret = cirrus_format_mixer_name(CIRRUS_CTL_CALI_CAL_R, "L",
                                    ctl_name, sizeof(ctl_name));
-    ret += cirrus_get_mixer_array_by_name(ctl_name,
+    if (ret < 0)
+        return ret;
+    ret = cirrus_get_mixer_array_by_name(ctl_name,
                                          &handle.spkl.cal_r, 4);
     if (ret < 0) {
         ALOGE("%s: Cannot get %s", __func__, ctl_name);
@@ -1068,7 +1094,9 @@ static int cirrus_stereo_calibration(void) {
 
     ret = cirrus_format_mixer_name(CIRRUS_CTL_CALI_CAL_R, "R",
                                    ctl_name, sizeof(ctl_name));
-    ret += cirrus_get_mixer_array_by_name(ctl_name,
+    if (ret < 0)
+        return ret;
+    ret = cirrus_get_mixer_array_by_name(ctl_name,
                                          &handle.spkr.cal_r, 4);
     if (ret < 0) {
         ALOGE("%s: Cannot get %s", __func__, ctl_name);
@@ -1169,7 +1197,9 @@ static int cirrus_do_fw_stereo_download(int do_reset) {
 
     ret = cirrus_format_mixer_name(CIRRUS_CTL_PROT_CAL_R, "L",
                                     ctl_name, sizeof(ctl_name));
-    ret += cirrus_set_mixer_array_by_name(ctl_name,
+    if (ret < 0)
+        return ret;
+    ret = cirrus_set_mixer_array_by_name(ctl_name,
                                          &handle.spkl.cal_r, 4);
     if (ret < 0) {
         ALOGE("%s: Cannot set Z-L calibration", __func__);
@@ -1178,7 +1208,9 @@ static int cirrus_do_fw_stereo_download(int do_reset) {
 
     ret = cirrus_format_mixer_name(CIRRUS_CTL_PROT_CAL_R, "R",
                                     ctl_name, sizeof(ctl_name));
-    ret += cirrus_set_mixer_array_by_name(ctl_name,
+    if (ret < 0)
+        return ret;
+    ret = cirrus_set_mixer_array_by_name(ctl_name,
                                          &handle.spkr.cal_r, 4);
     if (ret < 0) {
         ALOGE("%s: Cannot set Z-R calibration", __func__);
@@ -1187,7 +1219,9 @@ static int cirrus_do_fw_stereo_download(int do_reset) {
 
     ret = cirrus_format_mixer_name(CIRRUS_CTL_PROT_CAL_STATUS, "L",
                                     ctl_name, sizeof(ctl_name));
-    ret += cirrus_set_mixer_array_by_name(ctl_name,
+    if (ret < 0)
+        return ret;
+    ret = cirrus_set_mixer_array_by_name(ctl_name,
                                          &handle.spkl.status, 4);
     if (ret < 0) {
         ALOGE("%s: Cannot set calibration L status", __func__);
@@ -1196,7 +1230,9 @@ static int cirrus_do_fw_stereo_download(int do_reset) {
 
     ret = cirrus_format_mixer_name(CIRRUS_CTL_PROT_CAL_STATUS, "R",
                                     ctl_name, sizeof(ctl_name));
-    ret += cirrus_set_mixer_array_by_name(ctl_name,
+    if (ret < 0)
+        return ret;
+    ret = cirrus_set_mixer_array_by_name(ctl_name,
                                          &handle.spkr.status, 4);
     if (ret < 0) {
         ALOGE("%s: Cannot set calibration R status", __func__);
@@ -1205,7 +1241,9 @@ static int cirrus_do_fw_stereo_download(int do_reset) {
 
     ret = cirrus_format_mixer_name(CIRRUS_CTL_PROT_CAL_CHECKSUM, "L",
                                     ctl_name, sizeof(ctl_name));
-    ret += cirrus_set_mixer_array_by_name(ctl_name,
+    if (ret < 0)
+        return ret;
+    ret = cirrus_set_mixer_array_by_name(ctl_name,
                                          &handle.spkl.checksum, 4);
     if (ret < 0) {
         ALOGE("%s: Cannot set checksum L", __func__);
@@ -1214,7 +1252,9 @@ static int cirrus_do_fw_stereo_download(int do_reset) {
 
     ret = cirrus_format_mixer_name(CIRRUS_CTL_PROT_CAL_CHECKSUM, "R",
                                     ctl_name, sizeof(ctl_name));
-    ret += cirrus_set_mixer_array_by_name(ctl_name,
+    if (ret < 0)
+        return ret;
+    ret = cirrus_set_mixer_array_by_name(ctl_name,
                                          &handle.spkr.checksum, 4);
     if (ret < 0) {
         ALOGE("%s: Cannot set checksum R", __func__);
@@ -1327,7 +1367,9 @@ static int cirrus_check_error_state_stereo(void) {
 
     ret = cirrus_format_mixer_name(CIRRUS_CTL_PROT_CSPL_ERRORNO, "L",
                                    ctl_name, sizeof(ctl_name));
-    ret += cirrus_get_mixer_array_by_name(ctl_name, &cspl_error, 4);
+    if (ret < 0)
+        return ret;
+    ret = cirrus_get_mixer_array_by_name(ctl_name, &cspl_error, 4);
     if (ret < 0) {
         ALOGE("%s: Cannot get %s", __func__, ctl_name);
         goto exit;
@@ -1341,7 +1383,9 @@ static int cirrus_check_error_state_stereo(void) {
 
     ret = cirrus_format_mixer_name(CIRRUS_CTL_PROT_CSPL_ERRORNO, "R",
                                    ctl_name, sizeof(ctl_name));
-    ret += cirrus_get_mixer_array_by_name(ctl_name, &cspl_error, 4);
+    if (ret < 0)
+        return ret;
+    ret = cirrus_get_mixer_array_by_name(ctl_name, &cspl_error, 4);
     if (ret < 0) {
         ALOGE("%s: Cannot get %s", __func__, ctl_name);
         goto exit;
