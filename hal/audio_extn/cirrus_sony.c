@@ -150,8 +150,8 @@ int (*miscta_write_unit)(uint32_t id, const void *buf, uint32_t size) = NULL;
 #define CIRRUS_CTL_NAME_BUF 40
 #define CIRRUS_ERROR_DETECT_SLEEP_US	250000
 
-#define CIRRUS_FIRMWARE_LOAD_SLEEP_US	2500
-#define CIRRUS_FIRMWARE_MAX_RETRY	10
+#define CIRRUS_FIRMWARE_LOAD_SLEEP_US	5000
+#define CIRRUS_FIRMWARE_MAX_RETRY	30
 
 /* Saved calibrations */
 #ifndef CIRRUS_AUDIO_CAL_PATH
@@ -534,7 +534,7 @@ static int cirrus_set_mixer_array_by_name(char* ctl_name,
 
     ctl_config = mixer_get_ctl_by_name(card_mixer, ctl_name);
     if (!ctl_config) {
-        ALOGE("%s: Cannot get mixer control %s", __func__, ctl_name);
+        ALOGD("%s: Cannot get mixer control %s", __func__, ctl_name);
         ret = -1;
         goto exit;
     }
@@ -699,9 +699,11 @@ exit:
         handle.pcm_rx = NULL;
     }
 
-    list_remove(&uc_info_rx->list);
-    fp_disable_snd_device(adev, uc_info_rx->out_snd_device);
     fp_disable_audio_route(adev, uc_info_rx);
+    fp_disable_snd_device(adev, uc_info_rx->out_snd_device);
+    platform_invalidate_backend_config(adev->platform, uc_info_rx->out_snd_device);
+
+    list_remove(&uc_info_rx->list);
     free(uc_info_rx);
 
     return ret;
@@ -745,6 +747,24 @@ static int cirrus_do_reset(const char *channel) {
     return ret;
 }
 
+static int cirrus_mixer_wait_for_setting(char *ctl, int val, int retry)
+{
+    int i, ret;
+
+    for (i = 0; i < retry; i++) {
+        /* Start firmware download sequence: shut down DSP and reset states */
+        ret = cirrus_get_mixer_value_by_name(ctl);
+        if (ret < 0 || ret == val)
+            break;
+
+        usleep(10000);
+    }
+    if (ret < 0 && i == retry)
+        return -ETIMEDOUT;
+
+    return ret;
+}
+
 static int cirrus_exec_fw_download(const char *fw_type, const char *channel,
                                    int do_reset) {
     char ctl_name[CIRRUS_CTL_NAME_BUF];
@@ -774,6 +794,13 @@ static int cirrus_exec_fw_download(const char *fw_type, const char *channel,
         ALOGE("%s: Cannot reset %s status", __func__, ctl_name);
         goto exit;
     }
+
+    ret = cirrus_mixer_wait_for_setting(ctl_name, 0, 10);
+    if (ret < 0) {
+        ALOGE("%s: %s wait setting error %d", __func__, ctl_name, ret);
+        goto exit;
+    }
+
     usleep(10000);
 
     ret = cirrus_format_mixer_name("DSP1 Preload Switch",
@@ -785,6 +812,13 @@ static int cirrus_exec_fw_download(const char *fw_type, const char *channel,
         ALOGE("%s: Cannot reset %s", __func__, ctl_name);
         goto exit;
     }
+
+    ret = cirrus_mixer_wait_for_setting(ctl_name, 0, 10);
+    if (ret < 0) {
+        ALOGE("%s: %s wait setting error %d", __func__, ctl_name, ret);
+        goto exit;
+    }
+
     usleep(10000);
 
     /* Determine what firmware to load and configure DSP */
@@ -839,13 +873,18 @@ retry_fw:
 
     ret = cirrus_get_mixer_array_by_name(ctl_name, &cspl_ena, 4);
     if (ret < 0) {
-        ALOGE("%s: Cannot get %s stats", __func__, ctl_name);
-        goto exit;
+        if (retry < CIRRUS_FIRMWARE_MAX_RETRY) {
+            retry++;
+            ALOGI("%s: Retrying...\n", __func__);
+            goto retry_fw;
+        } else {
+            ALOGE("%s: Cannot get %s stats", __func__, ctl_name);
+            goto exit;
+        }
     }
 
     if ((cspl_ena[0] + cspl_ena[1] + cspl_ena[2]) == 0 && cspl_ena[3] == 1) {
         ALOGI("%s: Cirrus %s Firmware Download SUCCESS.", __func__, fw_type);
-
         /* Wait for the hardware to stabilize */
         usleep(100000);
         ret = 0;
@@ -1312,17 +1351,31 @@ exit:
     return ret;
 }
 
+static int cirrus_do_fw_calibration_download(struct cirrus_playback_session *hdl)
+{
+    int ret = 0;
+
+    ret = cirrus_exec_fw_download("Calibration", 0, 0);
+    if (ret < 0) {
+        ret = cirrus_exec_fw_download("Calibration", "L", 0);
+        ret += cirrus_exec_fw_download("Calibration", "R", 0);
+        if (ret != 0)
+            return ret;
+
+        /* Dual amp case */
+        hdl->is_stereo = true;
+    }
+
+    return ret;
+}
+
 static void *cirrus_do_calibration() {
     struct audio_device *adev = handle.adev_handle;
     int ret = 0, dev_file = -1;
-    int prev_state = handle.state;
 
     pthread_mutex_lock(&adev->lock);
     handle.state = CALIBRATING;
     pthread_mutex_unlock(&adev->lock);
-
-    if (prev_state == INIT)
-        prev_state = IDLE;
 
     if (handle.spkl.cal_ok && handle.spkr.cal_ok)
         goto skip_calibration;
@@ -1331,18 +1384,12 @@ static void *cirrus_do_calibration() {
            __func__, cal_ambient[0], cal_ambient[1], cal_ambient[2],
            cal_ambient[3]);
 
-    ret = cirrus_exec_fw_download("Calibration", 0, 0);
-    if (ret < 0) {
-        ret = cirrus_exec_fw_download("Calibration", "L", 0);
-        ret += cirrus_exec_fw_download("Calibration", "R", 0);
-        if (ret != 0) {
-            ALOGE("%s: Cannot send Calibration firmware: bailing out.",
-                  __func__);
-            ret = -EINVAL;
-            goto end;
-        }
-        /* Dual amp case */
-        handle.is_stereo = true;
+    ret = cirrus_do_fw_calibration_download(&handle);
+    if (ret != 0) {
+        ALOGE("%s: Cannot send Calibration firmware: bailing out.",
+              __func__);
+        ret = -EINVAL;
+        goto end;
     }
 
     if (handle.is_stereo)
@@ -1354,7 +1401,8 @@ static void *cirrus_do_calibration() {
         ALOGE("%s: CRITICAL: Calibration failure", __func__);
         goto end;
     }
-    ALOGI("%s: Calibration success", __func__);
+    ALOGI("%s: Calibration success! Saving state and waiting for DSP...",
+          __func__);
 
     ret = cirrus_save_calibration(&handle);
     if (ret) {
@@ -1362,6 +1410,15 @@ static void *cirrus_do_calibration() {
         ALOGW("%s: Cannot save calibration to file (%d)!!!", __func__, ret);
         ret = 0;
     }
+
+    /*
+     * There is no way to know when the DSP will be really ready. Usually,
+     * it takes around 4 seconds, but let's wait a bit more... In any case
+     * the calibration process happens only *once* in an entire userdata
+     * life, which means that only the first boot ever will be slow, in
+     * favor of a good speaker calibration.
+     */
+    sleep(6);
 
 skip_calibration:
     if (handle.is_stereo)
@@ -1375,6 +1432,8 @@ end:
     pthread_mutex_lock(&adev->lock);
     if (ret < 0)
         handle.state = CALIBRATION_ERROR;
+    else
+        handle.state = IDLE;
     pthread_mutex_unlock(&adev->lock);
 
     pthread_exit(0);
@@ -1520,11 +1579,25 @@ int spkr_prot_start_processing(__unused snd_device_t snd_device) {
 
     pthread_mutex_lock(&handle.fb_prot_mutex);
 
+    /*
+     * If we had a calibration error, then let's try to do it again.
+     * Right now. This time we may succeed and set the state to IDLE.
+     */
     if (handle.state == CALIBRATION_ERROR)
         cirrus_do_calibration();
 
-    /* If calibration still didn't succeed, return bad state */
-    if (handle.state == CALIBRATION_ERROR) {
+    /*
+     * If we are still in calibration phase, we cannot play audio...
+     * and it's the same if we got an error during the process.
+     *
+     * Reason is that if we try playing audio during calibration, then
+     * the result will be bad and we will end up with a poorly calibrated
+     * speaker. Also, the DSP may get left in a bad state and not accept
+     * the protection firmware when we're ready for it.
+     */
+    if (handle.state == CALIBRATING || handle.state == CALIBRATION_ERROR) {
+        ALOGI("%s: Forbidden. Calibration %s", __func__,
+              handle.state == CALIBRATING ? "is in progress..." : "failed.");
         ret = -1;
         goto end;
     }
