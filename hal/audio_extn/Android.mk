@@ -389,7 +389,9 @@ LOCAL_SHARED_LIBRARIES := \
     libtinyalsa \
     libaudioroute \
     libdl \
-    libexpat
+    libexpat \
+    audio.primary.$(TARGET_BOARD_PLATFORM)
+
 
 LOCAL_C_INCLUDES := \
     external/tinyalsa/include \
